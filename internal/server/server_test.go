@@ -243,6 +243,7 @@ func testUnauthorized(
 			},
 		},
 	)
+
 	if produce != nil {
 		t.Fatalf("produce response should be nil")
 	}

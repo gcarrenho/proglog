@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -19,7 +20,6 @@ var (
 	ACLPolicyFile        = configFile("policy.csv")
 )
 
-
 func configFile(filename string) string {
 	if dir := os.Getenv("CONFIG_DIR"); dir != "" {
 		return filepath.Join(dir, filename)
@@ -28,6 +28,6 @@ func configFile(filename string) string {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("home dir", filepath.Join(homeDir, ".proglog", filename))
 	return filepath.Join(homeDir, ".proglog", filename)
 }
-
