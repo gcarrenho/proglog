@@ -41,6 +41,10 @@ type grpcServer struct {
 	*Config
 }
 
+// The NewGRPCServer role configures and creates a gRPC server with various interceptor options for logging,
+// authentication, and statistics handling. It also registers a custom server that implements LogServer service-specific logic.
+// This configuration ensures that the server is well instrumented for monitoring and security,
+// and that any errors during the configuration process are handled appropriately.
 func newgrpcServer(config *Config) (srv *grpcServer, err error) {
 	srv = &grpcServer{
 		Config: config,
@@ -52,7 +56,7 @@ func NewGRPCServer(config *Config, grpcOpts ...grpc.ServerOption) (
 	*grpc.Server,
 	error,
 ) {
-	logger := zap.L().Named("server")
+	logger := zap.L().Named("server") // create a log
 	zapOpts := []grpc_zap.Option{
 		grpc_zap.WithDurationField(
 			func(duration time.Duration) zapcore.Field {
@@ -62,14 +66,27 @@ func NewGRPCServer(config *Config, grpcOpts ...grpc.ServerOption) (
 				)
 			},
 		),
-	}
+	} // Config of options of logger. In thiss case the duration in nanoseconds
 
-	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
-	err := view.Register(ocgrpc.DefaultServerViews...)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()}) // Config of th trace to always show the request
+	err := view.Register(ocgrpc.DefaultServerViews...)                    // View register of opencensus
 	if err != nil {
 		return nil, err
 	}
 
+	/* Config of interceptors
+	Interceptores de Stream: Se configuran los interceptores de stream para el servidor gRPC. Estos interceptores son funciones que se ejecutan antes y después de que el servidor procese una llamada RPC.
+	grpc_ctxtags.StreamServerInterceptor: Interceptor para gestionar etiquetas de contexto.
+	grpc_zap.StreamServerInterceptor: Interceptor para el logger zap.
+	grpc_auth.StreamServerInterceptor: Interceptor para la autenticación.
+
+	Interceptores Unarios: De manera similar, se configuran los interceptores unarios (para llamadas RPC individuales).
+	grpc_ctxtags.UnaryServerInterceptor: Interceptor para gestionar etiquetas de contexto.
+	grpc_zap.UnaryServerInterceptor: Interceptor para el logger zap.
+	grpc_auth.UnaryServerInterceptor: Interceptor para la autenticación.
+
+	Manejador de Estadísticas: Se añade un manejador de estadísticas (grpc.StatsHandler) de OpenCensus.
+	*/
 	grpcOpts = append(grpcOpts,
 		grpc.StreamInterceptor(
 			grpc_middleware.ChainStreamServer(
@@ -83,12 +100,13 @@ func NewGRPCServer(config *Config, grpcOpts ...grpc.ServerOption) (
 		)),
 		grpc.StatsHandler(&ocgrpc.ServerHandler{}),
 	)
-	gsrv := grpc.NewServer(grpcOpts...)
-	srv, err := newgrpcServer(config)
+
+	gsrv := grpc.NewServer(grpcOpts...) // Create the server gRPC with grpcOpts
+	srv, err := newgrpcServer(config)   // Create an instance of gRPC server with config
 	if err != nil {
 		return nil, err
 	}
-	api.RegisterLogServer(gsrv, srv)
+	api.RegisterLogServer(gsrv, srv) // Registers  the our server(srv) in the gRPC server under th "LogServer" services defined in api.
 	return gsrv, nil
 }
 

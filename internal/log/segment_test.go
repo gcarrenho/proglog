@@ -1,7 +1,6 @@
 package log
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -19,7 +18,7 @@ func TestSegment(t *testing.T) {
 	c := Config{}
 	c.Segment.MaxStoreBytes = 1024
 	c.Segment.MaxIndexBytes = entWidth * 3
-	fmt.Println("DIR ", dir)
+
 	s, err := newSegment(dir, 16, c)
 	require.NoError(t, err)
 	require.Equal(t, uint64(16), s.nextOffset, s.nextOffset)
@@ -40,13 +39,15 @@ func TestSegment(t *testing.T) {
 
 	require.True(t, s.IsMaxed())
 
-	/*c.Segment.MaxStoreBytes = uint64(len(want.Value) * 3)
+	err = s.Close()
+	require.NoError(t, err)
+	c.Segment.MaxStoreBytes = uint64(len(want.Value) * 3)
 	c.Segment.MaxIndexBytes = 1024
 
 	s, err = newSegment(dir, 16, c)
 	require.NoError(t, err)
 
-	require.True(t, s.IsMaxed())*/
+	require.True(t, s.IsMaxed())
 
 	err = s.Remove()
 	require.NoError(t, err)

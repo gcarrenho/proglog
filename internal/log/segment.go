@@ -61,6 +61,7 @@ func (s *segment) Append(record *api.Record) (offset uint64, err error) {
 		return 0, err
 	}
 	_, pos, err := s.store.Append(p)
+
 	if err != nil {
 		return 0, err
 	}

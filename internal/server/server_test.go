@@ -24,8 +24,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// imports...
-
 var debug = flag.Bool("debug", false, "Enable observability for debugging.")
 
 func TestMain(m *testing.M) {

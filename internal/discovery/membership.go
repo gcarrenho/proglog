@@ -5,15 +5,16 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 )
 
 type Membership struct {
-	Config
-	handler Handler
-	serf    *serf.Serf
-	events  chan serf.Event
-	logger  *zap.Logger
+	Config                  // Config of the node
+	handler Handler         // interface to manager join and leave events
+	serf    *serf.Serf      // Serf client to manager membership and events
+	events  chan serf.Event // channel to reciev Serf events
+	logger  *zap.Logger     // Logger
 }
 
 func New(handler Handler, config Config) (*Membership, error) {
@@ -30,30 +31,31 @@ func New(handler Handler, config Config) (*Membership, error) {
 
 type Config struct {
 	NodeName       string
-	BindAddr       string
-	Tags           map[string]string
-	StartJoinAddrs []string
+	BindAddr       string            // Link address for the node
+	Tags           map[string]string // Associed Tag to the node
+	StartJoinAddrs []string          // Addresses of nodes to join at startup.
 }
 
 func (m *Membership) setupSerf() (err error) {
-	addr, err := net.ResolveTCPAddr("tcp", m.BindAddr)
+	addr, err := net.ResolveTCPAddr("tcp", m.BindAddr) // Convert BindAddr to a TCP address
 	if err != nil {
 		return err
 	}
-	config := serf.DefaultConfig()
+	config := serf.DefaultConfig() // Init config by default of Serf
 	config.Init()
+	// Configures the address and port of the Serf member list.
 	config.MemberlistConfig.BindAddr = addr.IP.String()
 	config.MemberlistConfig.BindPort = addr.Port
-	m.events = make(chan serf.Event)
+	m.events = make(chan serf.Event) // Create a channel to receive events from Serf.
 	config.EventCh = m.events
 	config.Tags = m.Tags
 	config.NodeName = m.Config.NodeName
-	m.serf, err = serf.Create(config)
+	m.serf, err = serf.Create(config) // Create the Serf client with config
 	if err != nil {
 		return err
 	}
-	go m.eventHandler() 
-	if m.StartJoinAddrs != nil {
+	go m.eventHandler()          // Init manager of events
+	if m.StartJoinAddrs != nil { // Joins nodes in StartJoinAddrs if they are defined
 		_, err = m.serf.Join(m.StartJoinAddrs, true)
 		if err != nil {
 			return err
@@ -62,13 +64,15 @@ func (m *Membership) setupSerf() (err error) {
 	return nil
 }
 
-
 type Handler interface {
-	Join(name, addr string) error
-	Leave(name string) error
+	Join(name, addr string) error // Method to handle when a node joins
+	Leave(name string) error      // Method to handle when a node leave
 }
 
-
+// Event Loop: Listen to the events channel.
+// Event Types: Handles join, leave, and member failure events.
+// Join Events: Ignore events from the local member and handle the others with handleJoin.
+// Exit/Failure Events: Similar to join, but handled with handleLeave.
 func (m *Membership) eventHandler() {
 	for e := range m.events {
 		switch e.EventType() {
@@ -107,7 +111,6 @@ func (m *Membership) handleLeave(member serf.Member) {
 	}
 }
 
-
 func (m *Membership) isLocal(member serf.Member) bool {
 	return m.serf.LocalMember().Name == member.Name
 }
@@ -121,11 +124,14 @@ func (m *Membership) Leave() error {
 }
 
 func (m *Membership) logError(err error, msg string, member serf.Member) {
-	m.logger.Error(
+	log := m.logger.Error
+	if err == raft.ErrNotLeader {
+		log = m.logger.Debug
+	}
+	log(
 		msg,
 		zap.Error(err),
 		zap.String("name", member.Name),
 		zap.String("rpc_addr", member.Tags["rpc_addr"]),
 	)
 }
-
