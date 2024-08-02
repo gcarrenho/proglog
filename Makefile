@@ -51,3 +51,11 @@ compile:
 	protoc api/v1/*.proto --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative --proto_path=.
 	
 # END: begin
+
+# START: build_docker
+TAG ?= 0.0.1
+
+build-docker:
+	docker build -t github.com/travisjeffery/proglog:$(TAG) .
+
+# END: build_docker
