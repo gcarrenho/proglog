@@ -23,6 +23,7 @@ const (
 	Log_Consume_FullMethodName       = "/log.v1.Log/Consume"
 	Log_ConsumeStream_FullMethodName = "/log.v1.Log/ConsumeStream"
 	Log_ProduceStream_FullMethodName = "/log.v1.Log/ProduceStream"
+	Log_GetServers_FullMethodName    = "/log.v1.Log/GetServers"
 )
 
 // LogClient is the client API for Log service.
@@ -33,6 +34,7 @@ type LogClient interface {
 	Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponse, error)
 	ConsumeStream(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (Log_ConsumeStreamClient, error)
 	ProduceStream(ctx context.Context, opts ...grpc.CallOption) (Log_ProduceStreamClient, error)
+	GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error)
 }
 
 type logClient struct {
@@ -128,6 +130,16 @@ func (x *logProduceStreamClient) Recv() (*ProduceResponse, error) {
 	return m, nil
 }
 
+func (c *logClient) GetServers(ctx context.Context, in *GetServersRequest, opts ...grpc.CallOption) (*GetServersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServersResponse)
+	err := c.cc.Invoke(ctx, Log_GetServers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LogServer is the server API for Log service.
 // All implementations must embed UnimplementedLogServer
 // for forward compatibility
@@ -136,6 +148,7 @@ type LogServer interface {
 	Consume(context.Context, *ConsumeRequest) (*ConsumeResponse, error)
 	ConsumeStream(*ConsumeRequest, Log_ConsumeStreamServer) error
 	ProduceStream(Log_ProduceStreamServer) error
+	GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error)
 	mustEmbedUnimplementedLogServer()
 }
 
@@ -154,6 +167,9 @@ func (UnimplementedLogServer) ConsumeStream(*ConsumeRequest, Log_ConsumeStreamSe
 }
 func (UnimplementedLogServer) ProduceStream(Log_ProduceStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ProduceStream not implemented")
+}
+func (UnimplementedLogServer) GetServers(context.Context, *GetServersRequest) (*GetServersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetServers not implemented")
 }
 func (UnimplementedLogServer) mustEmbedUnimplementedLogServer() {}
 
@@ -251,6 +267,24 @@ func (x *logProduceStreamServer) Recv() (*ProduceRequest, error) {
 	return m, nil
 }
 
+func _Log_GetServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LogServer).GetServers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Log_GetServers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LogServer).GetServers(ctx, req.(*GetServersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Log_ServiceDesc is the grpc.ServiceDesc for Log service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -265,6 +299,10 @@ var Log_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Consume",
 			Handler:    _Log_Consume_Handler,
+		},
+		{
+			MethodName: "GetServers",
+			Handler:    _Log_GetServers_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
