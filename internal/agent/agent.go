@@ -65,11 +65,6 @@ func New(config Config) (*Agent, error) {
 		Config:    config,
 		shutdowns: make(chan struct{}),
 	}
-	logger, err := zap.NewProduction()
-	if err != nil {
-		return nil, err
-	}
-	zap.ReplaceGlobals(logger)
 	setup := []func() error{
 		a.setupLogger,
 		a.setupMux,
@@ -96,8 +91,13 @@ func (a *Agent) setupLogger() error {
 }
 
 func (a *Agent) setupMux() error {
+	addr, err := net.ResolveTCPAddr("tcp", a.Config.BindAddr)
+	if err != nil {
+		return err
+	}
 	rpcAddr := fmt.Sprintf(
-		":%d",
+		"%s:%d",
+		addr.IP.String(),
 		a.Config.RPCPort,
 	)
 	ln, err := net.Listen("tcp", rpcAddr)
@@ -109,6 +109,7 @@ func (a *Agent) setupMux() error {
 }
 
 func (a *Agent) setupLog() error {
+	// ...
 	raftLn := a.mux.Match(func(reader io.Reader) bool {
 		b := make([]byte, 1)
 		if _, err := reader.Read(b); err != nil {
@@ -129,7 +130,7 @@ func (a *Agent) setupLog() error {
 	logConfig.Raft.BindAddr = rpcAddr
 	logConfig.Raft.LocalID = raft.ServerID(a.Config.NodeName)
 	logConfig.Raft.Bootstrap = a.Config.Bootstrap
-
+	// ...
 	a.log, err = log.NewDistributedLog(
 		a.Config.DataDir,
 		logConfig,
