@@ -14,11 +14,11 @@ func TestLog(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T, log *Log,
 	){
-		/*"append and read a record succeeds": testAppendRead,
+		"append and read a record succeeds": testAppendRead,
 		"offset out of range error":         testOutOfRangeErr,
 		"reader":                            testReader,
-		"truncate":                          testTruncate,*/
-		"init with existing segments": testInitExisting,
+		"truncate":                          testTruncate,
+		"init with existing segments":       testInitExisting,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			dir, err := os.MkdirTemp("", "store-test")

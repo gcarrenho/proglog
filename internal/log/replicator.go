@@ -1,5 +1,6 @@
 package log
 
+/* Deprecated
 import (
 	"context"
 	"sync"
@@ -139,3 +140,4 @@ func (r *Replicator) logError(err error, msg, addr string) {
 		zap.Error(err),
 	)
 }
+*/
