@@ -41,6 +41,7 @@ func (l *Log) setup() error {
 	if err != nil {
 		return err
 	}
+	// Get a list of baseOffset's from the file names in the directory.
 	var baseOffsets []uint64
 	for _, file := range files {
 		offStr := strings.TrimSuffix(
@@ -55,10 +56,12 @@ func (l *Log) setup() error {
 		return baseOffsets[i] < baseOffsets[j]
 	})
 
+	// Recreate the segments.
 	for i := 0; i < len(baseOffsets); i++ {
 		if err = l.newSegment(baseOffsets[i]); err != nil {
 			return err
 		}
+		// baseOffsets contains dups (one for index file and one for store file).
 		i++
 	}
 	if l.segments == nil {
@@ -72,22 +75,37 @@ func (l *Log) setup() error {
 }
 
 func (l *Log) Append(record *api.Record) (uint64, error) {
+
+	highestOffset, err := l.HighestOffset()
+	if err != nil {
+		return 0, err
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	if l.activeSegment.IsMaxed() {
+		err = l.newSegment(highestOffset + 1)
+		if err != nil {
+			return 0, err
+		}
+	}
 
 	off, err := l.activeSegment.Append(record)
 	if err != nil {
 		return 0, err
 	}
-	if l.activeSegment.IsMaxed() {
+	/*if l.activeSegment.IsMaxed() {
 		err = l.newSegment(off + 1)
-	}
+	}*/
 	return off, err
 }
 
 func (l *Log) Read(off uint64) (*api.Record, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+
+	// Find the segment in which the offset lies.
 	var s *segment
 	for _, segment := range l.segments {
 		if segment.baseOffset <= off && off < segment.nextOffset {
@@ -99,6 +117,30 @@ func (l *Log) Read(off uint64) (*api.Record, error) {
 		return nil, api.ErrOffsetOutOfRange{Offset: off}
 	}
 	return s.Read(off)
+}
+
+func (l *Log) newSegment(baseOffset uint64) error {
+	s, err := newSegment(l.Dir, baseOffset, l.Config)
+	if err != nil {
+		return err
+	}
+	l.segments = append(l.segments, s)
+	l.activeSegment = s
+	return nil
+}
+
+func (l *Log) Remove() error {
+	if err := l.Close(); err != nil {
+		return err
+	}
+	return os.RemoveAll(l.Dir)
+}
+
+func (l *Log) Reset() error {
+	if err := l.Remove(); err != nil {
+		return err
+	}
+	return l.setup()
 }
 
 func (l *Log) Close() error {
@@ -121,7 +163,7 @@ func (l *Log) LowestOffset() (uint64, error) {
 func (l *Log) HighestOffset() (uint64, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	off := l.segments[len(l.segments)-1].nextOffset
+	off := l.activeSegment.nextOffset
 	if off == 0 {
 		return 0, nil
 	}
@@ -138,7 +180,6 @@ func (l *Log) Truncate(lowest uint64) error {
 				return err
 			}
 			continue
-
 		}
 		segments = append(segments, s)
 	}
@@ -165,28 +206,4 @@ func (o *originReader) Read(p []byte) (int, error) {
 	n, err := o.ReadAt(p, o.off)
 	o.off += int64(n)
 	return n, err
-}
-
-func (l *Log) newSegment(off uint64) error {
-	s, err := newSegment(l.Dir, off, l.Config)
-	if err != nil {
-		return err
-	}
-	l.segments = append(l.segments, s)
-	l.activeSegment = s
-	return nil
-}
-
-func (l *Log) Remove() error {
-	if err := l.Close(); err != nil {
-		return err
-	}
-	return os.RemoveAll(l.Dir)
-}
-
-func (l *Log) Reset() error {
-	if err := l.Remove(); err != nil {
-		return err
-	}
-	return l.setup()
 }

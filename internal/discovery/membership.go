@@ -56,8 +56,7 @@ func (m *Membership) setupSerf() (err error) {
 	}
 	go m.eventHandler()          // Init manager of events
 	if m.StartJoinAddrs != nil { // Joins nodes in StartJoinAddrs if they are defined
-		_, err = m.serf.Join(m.StartJoinAddrs, true)
-		if err != nil {
+		if _, err := m.serf.Join(m.StartJoinAddrs, true); err != nil {
 			return err
 		}
 	}
@@ -104,9 +103,7 @@ func (m *Membership) handleJoin(member serf.Member) {
 }
 
 func (m *Membership) handleLeave(member serf.Member) {
-	if err := m.handler.Leave(
-		member.Name,
-	); err != nil {
+	if err := m.handler.Leave(member.Name); err != nil {
 		m.logError(err, "failed to leave", member)
 	}
 }
@@ -126,6 +123,10 @@ func (m *Membership) Leave() error {
 func (m *Membership) logError(err error, msg string, member serf.Member) {
 	log := m.logger.Error
 	if err == raft.ErrNotLeader {
+		// Raft will error and return ErrNotLeader when you try to change the cluster on
+		// non-leader nodes. In our service discovery code we log all handler errors as
+		// critical, but if the node is a non-leader, then we should expect these errors
+		// and not log them.
 		log = m.logger.Debug
 	}
 	log(

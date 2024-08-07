@@ -72,10 +72,10 @@ func TestAgent(t *testing.T) {
 	defer func() {
 		for _, agent := range agents {
 			_ = agent.Shutdown()
-			/*require.NoError(
+			require.NoError(
 				t,
 				os.RemoveAll(agent.Config.DataDir),
-			)*/
+			)
 		}
 	}()
 

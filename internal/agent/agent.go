@@ -72,6 +72,7 @@ func New(config Config) (*Agent, error) {
 		a.setupServer,
 		a.setupMembership,
 	}
+
 	for _, fn := range setup {
 		if err := fn(); err != nil {
 			return nil, err
@@ -115,7 +116,7 @@ func (a *Agent) setupLog() error {
 		if _, err := reader.Read(b); err != nil {
 			return false
 		}
-		return bytes.Compare(b, []byte{byte(log.RaftRPC)}) == 0
+		return bytes.Equal(b, []byte{byte(log.RaftRPC)})
 	})
 	logConfig := log.Config{}
 	logConfig.Raft.StreamLayer = log.NewStreamLayer(
@@ -130,6 +131,7 @@ func (a *Agent) setupLog() error {
 	logConfig.Raft.BindAddr = rpcAddr
 	logConfig.Raft.LocalID = raft.ServerID(a.Config.NodeName)
 	logConfig.Raft.Bootstrap = a.Config.Bootstrap
+	logConfig.Raft.CommitTimeout = 1000 * time.Millisecond
 	// ...
 	a.log, err = log.NewDistributedLog(
 		a.Config.DataDir,
@@ -186,6 +188,7 @@ func (a *Agent) setupMembership() error {
 		},
 		StartJoinAddrs: a.Config.StartJoinAddrs,
 	})
+
 	return err
 }
 

@@ -19,9 +19,10 @@ import (
 )
 
 type DistributedLog struct {
-	config Config
-	log    *Log
-	raft   *raft.Raft
+	config  Config
+	log     *Log
+	raftLog *logStore
+	raft    *raft.Raft
 }
 
 func NewDistributedLog(dataDir string, config Config) (
@@ -41,6 +42,7 @@ func NewDistributedLog(dataDir string, config Config) (
 }
 
 func (l *DistributedLog) setupLog(dataDir string) error {
+	// This is the log used to store the actual user data (not the Raft commands).
 	logDir := filepath.Join(dataDir, "log")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
@@ -51,15 +53,20 @@ func (l *DistributedLog) setupLog(dataDir string) error {
 }
 
 func (l *DistributedLog) setupRaft(dataDir string) error {
+	var err error
+
+	// The FSM which runs your business logic.
 	fsm := &fsm{log: l.log}
 
+	// We will use our own log implementation as Raft's log store.
+	// This is where Raft will store the commands that will be processed by the FSM.
 	logDir := filepath.Join(dataDir, "raft", "log")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
 	}
 	logConfig := l.config
 	logConfig.Segment.InitialOffset = 1
-	logStore, err := newLogStore(logDir, logConfig)
+	l.raftLog, err = newLogStore(logDir, logConfig)
 	if err != nil {
 		return err
 	}
@@ -81,6 +88,7 @@ func (l *DistributedLog) setupRaft(dataDir string) error {
 		return err
 	}
 
+	// Transport layer for Raft to communicate between servers.
 	maxPool := 5
 	timeout := 10 * time.Second
 	transport := raft.NewNetworkTransport(
@@ -108,7 +116,7 @@ func (l *DistributedLog) setupRaft(dataDir string) error {
 	l.raft, err = raft.NewRaft(
 		config,
 		fsm,
-		logStore,
+		l.raftLog,
 		stableStore,
 		snapshotStore,
 		transport,
@@ -116,8 +124,12 @@ func (l *DistributedLog) setupRaft(dataDir string) error {
 	if err != nil {
 		return err
 	}
+
+	// Generally you’ll bootstrap a server configured with itself as the only voter,
+	// wait until it becomes the leader, and then tell the leader to add more servers to
+	// the cluster. The subsequently added servers don’t bootstrap.
 	hasState, err := raft.HasExistingState(
-		logStore,
+		l.raftLog,
 		stableStore,
 		snapshotStore,
 	)
@@ -169,6 +181,9 @@ func (l *DistributedLog) apply(reqType RequestType, req proto.Message) (
 	if future.Error() != nil {
 		return nil, future.Error()
 	}
+	// The future.Response() API returns what your FSM’s Apply() method returned and,
+	// opposed to Go’s convention of using Go’s multiple return values to separate
+	// errors, you must return a single value for Raft. Hence the type assertion.
 	res := future.Response()
 	if err, ok := res.(error); ok {
 		return nil, err
@@ -177,9 +192,14 @@ func (l *DistributedLog) apply(reqType RequestType, req proto.Message) (
 }
 
 func (l *DistributedLog) Read(offset uint64) (*api.Record, error) {
+	// When you’re okay with relaxed consistency, read operations need not go through
+	// Raft. When you need strong consistency, where reads must be up-to-date with
+	// writes, then you must go through Raft, but then reads are less efficient and take
+	// longer.
 	return l.log.Read(offset)
 }
 
+// These are methods that Serf would call.
 func (l *DistributedLog) Join(id, addr string) error {
 	configFuture := l.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
@@ -200,6 +220,12 @@ func (l *DistributedLog) Join(id, addr string) error {
 			}
 		}
 	}
+	// Raft supports adding servers as non-voters with the AddNonVoter() API. You’d find
+	// non-voter servers useful if you wanted to replicate state to many servers to
+	// serve read only eventually consistent state. Each time you add more voter
+	// servers, you increase the probability that replications and elections will take
+	// longer because the leader has more servers it needs to communicate with to reach
+	// a majority.
 	addFuture := l.raft.AddVoter(serverID, serverAddr, 0, 0)
 	if err := addFuture.Error(); err != nil {
 		return err
@@ -233,7 +259,11 @@ func (l *DistributedLog) Close() error {
 	if err := f.Error(); err != nil {
 		return err
 	}
-
+	// Close raft logs.
+	if err := l.raftLog.Log.Close(); err != nil {
+		return err
+	}
+	// Close user logs.
 	return l.log.Close()
 }
 
@@ -289,6 +319,7 @@ func (l *fsm) applyAppend(b []byte) interface{} {
 }
 
 func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
+	// IMP: We're snapshotting the user log (not the raft log).
 	r := f.log.Reader()
 	return &snapshot{reader: r}, nil
 }
@@ -300,6 +331,10 @@ type snapshot struct {
 }
 
 func (s *snapshot) Persist(sink raft.SnapshotSink) error {
+	// Since we are replicating a log, our snapshot is essentially the entire user log.
+	// if we were building a key-value store and we had a bunch of commands saying “set
+	// foo to bar,” “set foo to baz,” “set foo to qux,” and so on, we would only set the
+	// latest command to restore the current state.
 	if _, err := io.Copy(sink, s.reader); err != nil {
 		_ = sink.Cancel()
 		return err
@@ -310,6 +345,7 @@ func (s *snapshot) Persist(sink raft.SnapshotSink) error {
 func (s *snapshot) Release() {}
 
 func (f *fsm) Restore(r io.ReadCloser) error {
+	// Here, we restore the user log from the snapshot (not the raft log).
 	b := make([]byte, lenWidth)
 	var buf bytes.Buffer
 	for i := 0; ; i++ {
@@ -341,6 +377,7 @@ func (f *fsm) Restore(r io.ReadCloser) error {
 	return nil
 }
 
+// We wrap our log implementation in logStore so that it can be used as a raft log as well.
 var _ raft.LogStore = (*logStore)(nil)
 
 type logStore struct {
@@ -393,6 +430,7 @@ func (l *logStore) StoreLogs(records []*raft.Log) error {
 }
 
 func (l *logStore) DeleteRange(min, max uint64) error {
+	// This is required to remove records from raft's log which are old or are stored in a snapshot.
 	return l.Truncate(max)
 }
 
@@ -427,7 +465,9 @@ func (s *StreamLayer) Dial(
 	if err != nil {
 		return nil, err
 	}
-	// identify to mux this is a raft rpc
+	// identify to mux this is a raft rpc.
+	// When we connect to a server, we write the RaftRPC byte to identify the connection
+	// type so we can multiplex Raft on the same port as our Log gRPC requests.
 	_, err = conn.Write([]byte{byte(RaftRPC)})
 	if err != nil {
 		return nil, err
@@ -448,7 +488,7 @@ func (s *StreamLayer) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if bytes.Compare([]byte{byte(RaftRPC)}, b) != 0 {
+	if !bytes.Equal([]byte{byte(RaftRPC)}, b) {
 		return nil, fmt.Errorf("not a raft rpc")
 	}
 	if s.serverTLSConfig != nil {

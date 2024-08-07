@@ -92,20 +92,20 @@ func (c *cli) setupConfig(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	viper.SetConfigFile(configFile)
-
 	if err = viper.ReadInConfig(); err != nil {
 		// it's ok if config file doesn't exist
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return err
 		}
 	}
-
 	c.cfg.DataDir = viper.GetString("data-dir")
 	c.cfg.NodeName = viper.GetString("node-name")
 	c.cfg.BindAddr = viper.GetString("bind-addr")
 	c.cfg.RPCPort = viper.GetInt("rpc-port")
 	c.cfg.StartJoinAddrs = viper.GetStringSlice("start-join-addrs")
+
 	c.cfg.Bootstrap = viper.GetBool("bootstrap")
+
 	c.cfg.ACLModelFile = viper.GetString("acl-mode-file")
 	c.cfg.ACLPolicyFile = viper.GetString("acl-policy-file")
 	c.cfg.ServerTLSConfig.CertFile = viper.GetString("server-tls-cert-file")
@@ -118,7 +118,7 @@ func (c *cli) setupConfig(cmd *cobra.Command, args []string) error {
 	if c.cfg.ServerTLSConfig.CertFile != "" &&
 		c.cfg.ServerTLSConfig.KeyFile != "" {
 		c.cfg.ServerTLSConfig.Server = true
-		c.cfg.Config.ServerTLSConfig, err = config.SetupTLSConfig(
+		config.SetupTLSConfig(
 			c.cfg.ServerTLSConfig,
 		)
 		if err != nil {
@@ -128,7 +128,7 @@ func (c *cli) setupConfig(cmd *cobra.Command, args []string) error {
 
 	if c.cfg.PeerTLSConfig.CertFile != "" &&
 		c.cfg.PeerTLSConfig.KeyFile != "" {
-		c.cfg.Config.PeerTLSConfig, err = config.SetupTLSConfig(
+		config.SetupTLSConfig(
 			c.cfg.PeerTLSConfig,
 		)
 		if err != nil {
